@@ -13,6 +13,7 @@ type Storage interface {
 	Close()
 	CreateUpdateTeam(ctx context.Context, t models.Team) error
 	GetTeam(ctx context.Context, teamName string) (*models.Team, error)
+	SetIsActive(ctx context.Context, userId string, isActive bool) error
 }
 
 type PostgresStorage struct {
@@ -111,4 +112,26 @@ func (s *PostgresStorage) GetTeam(ctx context.Context, teamName string) (*models
 	}
 
 	return &team, nil
+}
+
+func (s *PostgresStorage) SetIsActive(ctx context.Context, userId string, isActive bool) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+
+	defer tx.Rollback(ctx)
+
+	const query = `UPDATE users SET is_active = $1 WHERE user_id = $2`
+
+	tag, err := tx.Exec(ctx, query, isActive, userId)
+	if err != nil {
+		return err
+	}
+
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("user not found")
+	}
+
+	return tx.Commit(ctx)
 }
