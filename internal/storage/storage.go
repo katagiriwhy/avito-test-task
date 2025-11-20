@@ -14,6 +14,7 @@ type Storage interface {
 	CreateUpdateTeam(ctx context.Context, t models.Team) error
 	GetTeam(ctx context.Context, teamName string) (*models.Team, error)
 	SetIsActive(ctx context.Context, userId string, isActive bool) error
+	CreatePullRequest(ctx context.Context, pr models.PullRequest) error
 }
 
 type PostgresStorage struct {
@@ -131,6 +132,34 @@ func (s *PostgresStorage) SetIsActive(ctx context.Context, userId string, isActi
 
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("user not found")
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (s *PostgresStorage) CreatePullRequest(ctx context.Context, pr models.PullRequest) error {
+	tx, err := s.pool.Begin(ctx)
+
+	if err != nil {
+		return err
+	}
+
+	defer tx.Rollback(ctx)
+
+	const query = `INSERT INTO pull_requests (pull_request_id, pull_request_name, author_id, status) VALUES ($1, $2, $3, $4)`
+
+	_, err = tx.Exec(ctx, query, pr.PullRequestID, pr.PullRequestName, pr.AuthorID, pr.Status)
+	if err != nil {
+		return err
+	}
+
+	const reviewerQuery = `INSERT INTO reviewers (pull_request_id, reviewer_id) VALUES ($1, $2)`
+
+	for _, reviewerID := range pr.AssignedReviewers {
+		_, err := tx.Exec(ctx, reviewerQuery, pr.PullRequestID, reviewerID)
+		if err != nil {
+			return err
+		}
 	}
 
 	return tx.Commit(ctx)
