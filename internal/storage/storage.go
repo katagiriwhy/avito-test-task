@@ -4,12 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/katagiriwhy/avito-test-task/internal/models"
 )
+
+// TODO maybe i should put it into struct
+var rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 type Storage interface {
 	Close()
@@ -19,6 +23,7 @@ type Storage interface {
 	CreatePullRequest(ctx context.Context, pr models.PullRequest) error
 	MergePullRequest(ctx context.Context, prID string) (*models.PullRequest, error)
 	GetPullRequestWithReviewers(ctx context.Context, prID string) (*models.PullRequest, error)
+	ReassignReviewer(ctx context.Context, prId, oldReviewerID string) (*models.PullRequest, string, error)
 }
 
 type PostgresStorage struct {
@@ -50,8 +55,8 @@ func (s *PostgresStorage) CreateUpdateTeam(ctx context.Context, t models.Team) e
 	}
 
 	const memberQuery = `INSERT INTO users(user_id, username, team_name, is_active) 
-								VALUES($1, $2, $3, $4)
-             		ON CONFLICT (user_id) DO UPDATE SET 
+				VALUES($1, $2, $3, $4)
+				ON CONFLICT (user_id) DO UPDATE SET 
                  username = EXCLUDED.username,
                  team_name = EXCLUDED.team_name,
                  is_active = EXCLUDED.is_active`
@@ -260,4 +265,106 @@ func (s *PostgresStorage) GetPullRequestWithReviewers(ctx context.Context, prID 
 	pr.AssignedReviewers = reviewers
 
 	return &pr, nil
+}
+
+func (s *PostgresStorage) ReassignReviewer(ctx context.Context, prID, oldReviewerID string) (*models.PullRequest, string, error) {
+	var status models.PrStatus
+	err := s.pool.QueryRow(ctx,
+		`SELECT status FROM pull_requests WHERE pull_request_id=$1`,
+		prID,
+	).Scan(&status)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, "", errors.NewNotFound("NOT_FOUND", "pull request not found")
+	}
+	if err != nil {
+		return nil, "", err
+	}
+
+	if status == models.Merged {
+		return nil, "", errors.NewConflict("PR_MERGED", "cannot reassign on merged PR")
+	}
+
+	var exists bool
+
+	const query = `SELECT EXISTS (SELECT 1 FROM reviewers WHERE pull_request_id=$1 AND reviewer_id=$2)`
+
+	if err := s.pool.QueryRow(ctx, query, prID, oldReviewerID).Scan(&exists); err != nil {
+		return nil, "", err
+	}
+
+	if !exists {
+		return nil, "", errors.NewConflict("NOT_ASSIGNED", "reviewer is not assigned to this PR")
+	}
+
+	var team string
+	err = s.pool.QueryRow(ctx, `SELECT team_name FROM users WHERE user_id=$1`, oldReviewerID).Scan(&team)
+
+	if err != nil {
+		return nil, "", err
+	}
+
+	const userQuery = `SELECT user_id FROM users WHERE team_name=$1 AND is_active=true AND user_id !=$2`
+
+	rows, err := s.pool.Query(ctx, userQuery, team, oldReviewerID)
+
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	users := make([]string, 0)
+
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			return nil, "", err
+		}
+		users = append(users, userID)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+
+	if len(users) == 0 {
+		return nil, "", errors.NewConflict("NO_CANDIDATE", "no active replacement candidate in team")
+	}
+
+	newReviewer := users[rng.Intn(len(users))]
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	defer tx.Rollback(ctx)
+
+	const deleteReviewerQuery = `DELETE FROM reviewers WHERE pull_request_id=$1 AND reviewer_id=$2`
+
+	tag, err := tx.Exec(ctx, deleteReviewerQuery, prID, oldReviewerID)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if tag.RowsAffected() == 0 {
+		return nil, "", errors.NewConflict("NOT_ASSIGNED", "reviewer disappeared")
+	}
+
+	const insertReviewerQuery = `INSERT INTO reviewers (pull_request_id, reviewer_id) VALUES ($1, $2)`
+
+	_, err = tx.Exec(ctx, insertReviewerQuery, prID, newReviewer)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, "", err
+	}
+
+	pr, err := s.GetPullRequestWithReviewers(ctx, prID)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return pr, newReviewer, nil
 }

@@ -12,6 +12,15 @@ type PullRequest struct {
 	MergedAt          *time.Time `db:"merged_at" json:"merged_at,omitempty"`
 }
 
+type PullRequestReassignResponse struct {
+	PullRequestID     string   `json:"pull_request_id"`
+	PullRequestName   string   `json:"pull_request_name"`
+	AuthorID          string   `json:"author_id"`
+	Status            string   `json:"status"`
+	AssignedReviewers []string `json:"assigned_reviewers"`
+	ReplacedBy        string   `json:"replaced_by"`
+}
+
 type PullRequestShort struct {
 	PullRequestID   string   `db:"pull_request_id" json:"pull_request_id"`
 	PullRequestName string   `db:"pull_request_name" json:"pull_request_name"`
