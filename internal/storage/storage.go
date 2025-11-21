@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/katagiriwhy/avito-test-task/internal/models"
@@ -15,6 +17,8 @@ type Storage interface {
 	GetTeam(ctx context.Context, teamName string) (*models.Team, error)
 	SetIsActive(ctx context.Context, userId string, isActive bool) error
 	CreatePullRequest(ctx context.Context, pr models.PullRequest) error
+	MergePullRequest(ctx context.Context, prID string) (*models.PullRequest, error)
+	GetPullRequestWithReviewers(ctx context.Context, prID string) (*models.PullRequest, error)
 }
 
 type PostgresStorage struct {
@@ -163,4 +167,97 @@ func (s *PostgresStorage) CreatePullRequest(ctx context.Context, pr models.PullR
 	}
 
 	return tx.Commit(ctx)
+}
+
+func (s *PostgresStorage) MergePullRequest(ctx context.Context, prID string) (*models.PullRequest, error) {
+	const query = `SELECT status, merged_at FROM pull_requests WHERE pull_request_id = $1`
+
+	var mergedAt *time.Time
+	var status models.PrStatus
+
+	if err := s.pool.QueryRow(ctx, query, prID).Scan(&status, &mergedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("pull request not found")
+		}
+		return nil, err
+	}
+
+	if status == models.Merged {
+		pr, err := s.GetPullRequestWithReviewers(ctx, prID)
+		if err != nil {
+			return nil, err
+		}
+		return pr, nil
+	}
+
+	tx, err := s.pool.Begin(ctx)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer tx.Rollback(ctx)
+
+	const updateQuery = `UPDATE pull_requests SET status = 'MERGED', merged_at = NOW() WHERE pull_request_id = $1`
+
+	tag, err := tx.Exec(ctx, updateQuery, prID)
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, fmt.Errorf("pull request not found")
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	return s.GetPullRequestWithReviewers(ctx, prID)
+}
+
+func (s *PostgresStorage) GetPullRequestWithReviewers(ctx context.Context, prID string) (*models.PullRequest, error) {
+	const query = `SELECT pull_request_id, pull_request_name, author_id, status, merged_at FROM pull_requests WHERE pull_request_id = $1`
+
+	var pr models.PullRequest
+
+	err := s.pool.QueryRow(ctx, query, prID).Scan(
+		&pr.PullRequestID,
+		&pr.PullRequestName,
+		&pr.AuthorID,
+		&pr.Status,
+		&pr.MergedAt)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("pull request not found")
+		}
+		return nil, err
+	}
+
+	const reviewersQuery = `SELECT reviewer_id FROM reviewers WHERE pull_request_id = $1`
+
+	rows, err := s.pool.Query(ctx, reviewersQuery, pr.PullRequestID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	reviewers := make([]string, 0)
+
+	for rows.Next() {
+		var reviewerID string
+
+		if err := rows.Scan(&reviewerID); err != nil {
+			return nil, err
+		}
+		reviewers = append(reviewers, reviewerID)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	pr.AssignedReviewers = reviewers
+
+	return &pr, nil
 }
