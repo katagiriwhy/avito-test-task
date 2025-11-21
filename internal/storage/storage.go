@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	appError "github.com/katagiriwhy/avito-test-task/internal/errors"
 	"github.com/katagiriwhy/avito-test-task/internal/models"
 )
 
@@ -24,6 +25,7 @@ type Storage interface {
 	MergePullRequest(ctx context.Context, prID string) (*models.PullRequest, error)
 	GetPullRequestWithReviewers(ctx context.Context, prID string) (*models.PullRequest, error)
 	ReassignReviewer(ctx context.Context, prId, oldReviewerID string) (*models.PullRequest, string, error)
+	GetReview(ctx context.Context, userID string) ([]models.PullRequestShort, error)
 }
 
 type PostgresStorage struct {
@@ -275,14 +277,14 @@ func (s *PostgresStorage) ReassignReviewer(ctx context.Context, prID, oldReviewe
 	).Scan(&status)
 
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, "", errors.NewNotFound("NOT_FOUND", "pull request not found")
+		return nil, "", appError.NewNotFound("NOT_FOUND", "pull request not found")
 	}
 	if err != nil {
 		return nil, "", err
 	}
 
 	if status == models.Merged {
-		return nil, "", errors.NewConflict("PR_MERGED", "cannot reassign on merged PR")
+		return nil, "", appError.NewConflict("PR_MERGED", "cannot reassign on merged PR")
 	}
 
 	var exists bool
@@ -294,7 +296,7 @@ func (s *PostgresStorage) ReassignReviewer(ctx context.Context, prID, oldReviewe
 	}
 
 	if !exists {
-		return nil, "", errors.NewConflict("NOT_ASSIGNED", "reviewer is not assigned to this PR")
+		return nil, "", appError.NewConflict("NOT_ASSIGNED", "reviewer is not assigned to this PR")
 	}
 
 	var team string
@@ -328,7 +330,7 @@ func (s *PostgresStorage) ReassignReviewer(ctx context.Context, prID, oldReviewe
 	}
 
 	if len(users) == 0 {
-		return nil, "", errors.NewConflict("NO_CANDIDATE", "no active replacement candidate in team")
+		return nil, "", appError.NewConflict("NO_CANDIDATE", "no active replacement candidate in team")
 	}
 
 	newReviewer := users[rng.Intn(len(users))]
@@ -347,7 +349,7 @@ func (s *PostgresStorage) ReassignReviewer(ctx context.Context, prID, oldReviewe
 	}
 
 	if tag.RowsAffected() == 0 {
-		return nil, "", errors.NewConflict("NOT_ASSIGNED", "reviewer disappeared")
+		return nil, "", appError.NewConflict("NOT_ASSIGNED", "reviewer disappeared")
 	}
 
 	const insertReviewerQuery = `INSERT INTO reviewers (pull_request_id, reviewer_id) VALUES ($1, $2)`
@@ -367,4 +369,34 @@ func (s *PostgresStorage) ReassignReviewer(ctx context.Context, prID, oldReviewe
 	}
 
 	return pr, newReviewer, nil
+}
+
+func (s *PostgresStorage) GetReview(ctx context.Context, prID string) ([]models.PullRequestShort, error) {
+	const query = `SELECT pr.pull_request_id, pr.pull_request_name, pr.author_id, pr.status
+	FROM reviewers r JOIN pull_requests pr ON r.pull_request_id = pr.pull_request_id WHERE r.reviewer_id =$1
+	ORDER BY pr.created_at DESC`
+
+	rows, err := s.pool.Query(ctx, query, prID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var prs []models.PullRequestShort
+
+	for rows.Next() {
+		var pr models.PullRequestShort
+
+		if err := rows.Scan(&pr.PullRequestID, &pr.PullRequestName, &pr.AuthorID, &pr.Status); err != nil {
+			return nil, err
+		}
+
+		prs = append(prs, pr)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return prs, nil
 }
