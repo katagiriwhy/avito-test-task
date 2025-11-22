@@ -1,7 +1,7 @@
 services:
   app:
     container_name: go_app
-    build: .
+    build: ..
     environment:
       PORT: ":8080"
       DATABASE_URL: "postgres://postgres:postgres@db:5432/postgres?sslmode=disable"
@@ -22,7 +22,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./migrations/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ../migrations/init.sql:/docker-entrypoint-initdb.d/01-init.sql
       - postgres_data:/var/lib/postgresql/data
 
 volumes:

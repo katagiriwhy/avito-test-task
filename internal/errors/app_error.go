@@ -1,7 +1,5 @@
 package errors
 
-import "strings"
-
 type AppError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
@@ -22,8 +20,4 @@ func NewConflict(code, msg string) *AppError {
 
 func NewBadRequest(code, msg string) *AppError {
 	return &AppError{Code: code, Message: msg, Status: 400}
-}
-
-func ValidateString(s string) bool {
-	return strings.TrimSpace(s) == ""
 }
