@@ -12,6 +12,7 @@ import (
 type Storage interface {
 	Close()
 	CreateUpdateTeam(ctx context.Context, t models.Team) error
+	UpdateTeam(ctx context.Context, t models.Team) error
 	GetTeam(ctx context.Context, teamName string) (*models.Team, error)
 	SetIsActive(ctx context.Context, userId string, isActive bool) (bool, error)
 	CreatePullRequest(ctx context.Context, pr models.PullRequest) error
@@ -65,6 +66,33 @@ func (s *PostgresStorage) CreateUpdateTeam(ctx context.Context, t models.Team) e
 	for _, m := range t.Members {
 		if _, err := tx.Exec(ctx, memberQuery, m.UserID, m.Username, t.TeamName, m.IsActive); err != nil {
 			return err
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (s *PostgresStorage) UpdateTeam(ctx context.Context, t models.Team) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	const memberQuery = `UPDATE users SET 
+		username = $1,
+		team_name = $2,
+		is_active = $3
+		WHERE user_id = $4 AND team_name = $2`
+
+	for _, m := range t.Members {
+		tag, err := tx.Exec(ctx, memberQuery, m.Username, t.TeamName, m.IsActive, m.UserID)
+		if err != nil {
+			return err
+		}
+
+		if tag.RowsAffected() == 0 {
+			return errors.New("user " + m.UserID + " is not a member of team " + t.TeamName)
 		}
 	}
 

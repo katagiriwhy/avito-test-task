@@ -73,7 +73,7 @@ func (h *TeamHandler) CreateTeam(c *gin.Context) {
 		}
 	}
 
-	createdTeam, err := h.service.CreateUpdateTeam(c.Request.Context(), team)
+	result, err := h.service.CreateUpdateTeam(c.Request.Context(), team)
 	if err != nil {
 		var appErr *appError.AppError
 		if errors.As(err, &appErr) {
@@ -89,7 +89,11 @@ func (h *TeamHandler) CreateTeam(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"team": createdTeam})
+	if result.IsUpdate {
+		c.JSON(http.StatusOK, gin.H{"team": result.Team})
+	} else {
+		c.JSON(http.StatusCreated, gin.H{"team": result.Team})
+	}
 }
 
 func (h *TeamHandler) GetTeam(c *gin.Context) {
