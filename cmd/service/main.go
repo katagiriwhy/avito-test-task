@@ -1,7 +1,12 @@
 package main
 
-import "fmt"
+import (
+	"github.com/katagiriwhy/avito-test-task/internal/application"
+)
 
 func main() {
-	fmt.Println("Initial commit")
+	app := application.NewApplication()
+	defer app.Close()
+
+	app.Run()
 }
