@@ -34,12 +34,3 @@ const (
 	Open   PrStatus = "OPEN"
 	Merged PrStatus = "MERGED"
 )
-
-func IsValidStatus(status PrStatus) bool {
-	switch status {
-	case Open, Merged:
-		return true
-	default:
-		return false
-	}
-}
