@@ -13,9 +13,6 @@ import (
 	"github.com/katagiriwhy/avito-test-task/internal/models"
 )
 
-// TODO maybe i should put it into struct
-var rng = rand.New(rand.NewSource(time.Now().UnixNano()))
-
 type Storage interface {
 	Close()
 	CreateUpdateTeam(ctx context.Context, t models.Team) error
@@ -30,11 +27,13 @@ type Storage interface {
 
 type PostgresStorage struct {
 	pool *pgxpool.Pool
+	rng  *rand.Rand
 }
 
 func NewPostgresStorage(pool *pgxpool.Pool) *PostgresStorage {
 	return &PostgresStorage{
 		pool: pool,
+		rng:  rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -333,7 +332,7 @@ func (s *PostgresStorage) ReassignReviewer(ctx context.Context, prID, oldReviewe
 		return nil, "", appError.NewConflict("NO_CANDIDATE", "no active replacement candidate in team")
 	}
 
-	newReviewer := users[rng.Intn(len(users))]
+	newReviewer := users[s.rng.Intn(len(users))]
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

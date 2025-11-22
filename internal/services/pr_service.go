@@ -2,10 +2,9 @@ package services
 
 import (
 	"context"
-	"errors"
+
 	"github.com/katagiriwhy/avito-test-task/internal/models"
 	"github.com/katagiriwhy/avito-test-task/internal/storage"
-	"strings"
 )
 
 type PullRequestService struct {
@@ -17,13 +16,13 @@ func NewPullRequestService(db *storage.PostgresStorage) *PullRequestService {
 }
 
 func (p *PullRequestService) CreatePullRequest(ctx context.Context, pr models.PullRequest) error {
-	if strings.TrimSpace(pr.PullRequestID) == "" {
-		return errors.New("pull request id is empty")
-	}
-
-	if strings.TrimSpace(pr.PullRequestName) == "" {
-		return errors.New("pull request name is empty")
-	}
-
 	return p.db.CreatePullRequest(ctx, pr)
+}
+
+func (p *PullRequestService) MergePullRequest(ctx context.Context, prID string) (*models.PullRequest, error) {
+	return p.db.MergePullRequest(ctx, prID)
+}
+
+func (p *PullRequestService) ReassignReviewer(ctx context.Context, prID string, reviewerID string) (*models.PullRequest, string, error) {
+	return p.db.ReassignReviewer(ctx, prID, reviewerID)
 }
