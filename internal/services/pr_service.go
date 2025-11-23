@@ -92,7 +92,7 @@ func (p *PullRequestService) MergePullRequest(ctx context.Context, prID string) 
 }
 
 func (p *PullRequestService) ReassignReviewer(ctx context.Context, prID string, oldReviewerID string) (*models.PullRequest, string, error) {
-	status, err := p.storage.GetPullRequestStatus(ctx, prID)
+	pr, err := p.storage.GetPullRequestWithReviewers(ctx, prID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, "", appError.NewNotFound("NOT_FOUND", "pull request not found")
@@ -100,8 +100,12 @@ func (p *PullRequestService) ReassignReviewer(ctx context.Context, prID string, 
 		return nil, "", err
 	}
 
-	if status == models.Merged {
+	if pr.Status == models.Merged {
 		return nil, "", appError.NewConflict("PR_MERGED", "cannot reassign on merged PR")
+	}
+
+	if pr.AuthorID == oldReviewerID {
+		return nil, "", appError.NewConflict("BAD_REQUEST", "cannot reassign reviewer who is the author of this PR")
 	}
 
 	assigned, err := p.storage.IsReviewerAssigned(ctx, prID, oldReviewerID)
@@ -125,26 +129,31 @@ func (p *PullRequestService) ReassignReviewer(ctx context.Context, prID string, 
 		return nil, "", err
 	}
 
-	if len(candidates) == 0 {
-		return nil, "", appError.NewConflict("NO_CANDIDATE", "no active replacement candidate in team")
+	filteredCandidates := make([]string, 0)
+	for _, candidate := range candidates {
+		if candidate != pr.AuthorID {
+			filteredCandidates = append(filteredCandidates, candidate)
+		}
 	}
-
-	newReviewer := candidates[p.rng.Intn(len(candidates))]
 
 	if err := p.storage.DeleteReviewer(ctx, prID, oldReviewerID); err != nil {
 		return nil, "", err
 	}
 
-	if err := p.storage.AddReviewer(ctx, prID, newReviewer); err != nil {
-		return nil, "", err
+	var newReviewer string
+	if len(filteredCandidates) > 0 {
+		newReviewer = filteredCandidates[p.rng.Intn(len(filteredCandidates))]
+		if err := p.storage.AddReviewer(ctx, prID, newReviewer); err != nil {
+			return nil, "", err
+		}
 	}
 
-	pr, err := p.storage.GetPullRequestWithReviewers(ctx, prID)
+	updatedPR, err := p.storage.GetPullRequestWithReviewers(ctx, prID)
 	if err != nil {
 		return nil, "", err
 	}
 
-	return pr, newReviewer, nil
+	return updatedPR, newReviewer, nil
 }
 
 func (p *PullRequestService) GetPullRequest(ctx context.Context, prID string) (*models.PullRequest, error) {
