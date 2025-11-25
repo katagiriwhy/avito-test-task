@@ -67,3 +67,7 @@ issues:
   max-issues-per-linter: 50
   max-same-issues: 3
 ```
+
+### Нагрузочное тестирование
+
+![Результаты тестирования team/add](images/team-add.png)
