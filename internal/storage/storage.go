@@ -14,6 +14,7 @@ type Storage interface {
 	CreateUpdateTeam(ctx context.Context, t models.Team) error
 	UpdateTeam(ctx context.Context, t models.Team) error
 	GetTeam(ctx context.Context, teamName string) (*models.Team, error)
+	GetReviewAssignmentStats(ctx context.Context) (map[string]int, map[string]int, error)
 	DeactivateTeamUsers(ctx context.Context, teamName string) ([]string, []string, error)
 	SetIsActive(ctx context.Context, userId string, isActive bool) (bool, error)
 	CreatePullRequest(ctx context.Context, pr models.PullRequest) error
@@ -191,6 +192,54 @@ func (s *PostgresStorage) GetTeam(ctx context.Context, teamName string) (*models
 
 	team.Members = members
 	return &team, nil
+}
+
+func (s *PostgresStorage) GetReviewAssignmentStats(ctx context.Context) (map[string]int, map[string]int, error) {
+	const userQuery = `SELECT reviewer_id, COUNT(*) FROM reviewers GROUP BY reviewer_id`
+	userStats := make(map[string]int)
+
+	rows, err := s.pool.Query(ctx, userQuery)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var reviewerID string
+		var count int
+		if err := rows.Scan(&reviewerID, &count); err != nil {
+			return nil, nil, err
+		}
+		userStats[reviewerID] = count
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	const pullRequestQuery = `SELECT pull_request_id, COUNT(*) FROM reviewers GROUP BY pull_request_id`
+	prStats := make(map[string]int)
+
+	prRows, err := s.pool.Query(ctx, pullRequestQuery)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer prRows.Close()
+
+	for prRows.Next() {
+		var prID string
+		var count int
+		if err := prRows.Scan(&prID, &count); err != nil {
+			return nil, nil, err
+		}
+		prStats[prID] = count
+	}
+
+	if err := prRows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	return userStats, prStats, nil
 }
 
 func (s *PostgresStorage) TeamExists(ctx context.Context, teamName string) (bool, error) {

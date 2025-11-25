@@ -9,6 +9,7 @@ func NewRoutes(
 	teamService *services.TeamService,
 	userService *services.UserService,
 	prService *services.PullRequestService,
+	statsService *services.StatsService,
 ) *gin.Engine {
 	router := gin.Default()
 
@@ -17,6 +18,7 @@ func NewRoutes(
 	teamHandler := NewTeamHandler(teamService)
 	userHandler := NewUserHandler(userService)
 	prHandler := NewPullRequestHandler(prService)
+	statsHandler := NewStatsHandler(statsService)
 
 	team := router.Group("/team")
 	{
@@ -36,6 +38,11 @@ func NewRoutes(
 		prs.POST("/create", prHandler.CreatePullRequest)
 		prs.POST("/merge", prHandler.MergePullRequest)
 		prs.POST("/reassign", prHandler.ReassignReviewer)
+	}
+
+	stats := router.Group("/stats")
+	{
+		stats.GET("/reviewAssignments", statsHandler.GetReviewAssignmentStats)
 	}
 
 	return router

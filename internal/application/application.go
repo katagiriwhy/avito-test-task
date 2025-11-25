@@ -32,8 +32,9 @@ func NewApplication() *Application {
 	teamService := services.NewTeamService(db)
 	userService := services.NewUserService(db, rng)
 	prService := services.NewPullRequestService(db)
+	statsService := services.NewStatsService(db)
 
-	router := handlers.NewRoutes(teamService, userService, prService)
+	router := handlers.NewRoutes(teamService, userService, prService, statsService)
 
 	return &Application{
 		router: router,

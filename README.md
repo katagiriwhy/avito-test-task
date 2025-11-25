@@ -29,7 +29,13 @@ make up
 POST localhost:8080/users/deactivate?team_name=<team_name>
 ```
 
-### 2. Конфигурация линтера (`.golangci.yml`)
+### 2. Статистика по назначению пользователей на pullRequests
+
+```bash
+GET localhost:8080/stats/reviewAssignments
+```
+
+### 3. Конфигурация линтера (`.golangci.yml`)
 
 ```yaml
 run:
