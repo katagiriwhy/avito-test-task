@@ -27,6 +27,7 @@ func NewRoutes(
 	users := router.Group("/users")
 	{
 		users.POST("/setIsActive", userHandler.SetIsActive)
+		users.POST("/deactivate", userHandler.DeactivateTeam)
 		users.GET("/getReview", userHandler.GetReview)
 	}
 

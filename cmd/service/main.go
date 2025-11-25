@@ -6,6 +6,7 @@ import (
 
 func main() {
 	app := application.NewApplication()
+
 	defer app.Close()
 
 	app.Run()

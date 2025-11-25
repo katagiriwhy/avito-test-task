@@ -14,6 +14,7 @@ type Storage interface {
 	CreateUpdateTeam(ctx context.Context, t models.Team) error
 	UpdateTeam(ctx context.Context, t models.Team) error
 	GetTeam(ctx context.Context, teamName string) (*models.Team, error)
+	DeactivateTeamUsers(ctx context.Context, teamName string) ([]string, []string, error)
 	SetIsActive(ctx context.Context, userId string, isActive bool) (bool, error)
 	CreatePullRequest(ctx context.Context, pr models.PullRequest) error
 	GetPullRequestStatus(ctx context.Context, prID string) (models.PrStatus, error)
@@ -97,6 +98,64 @@ func (s *PostgresStorage) UpdateTeam(ctx context.Context, t models.Team) error {
 	}
 
 	return tx.Commit(ctx)
+}
+
+func (s *PostgresStorage) DeactivateTeamUsers(ctx context.Context, teamName string) ([]string, []string, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	const deactivateQuery = `UPDATE users SET is_active = false WHERE team_name = $1 AND is_active = true RETURNING user_id`
+
+	rows, err := tx.Query(ctx, deactivateQuery, teamName)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	deactivated := make([]string, 0)
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			return nil, nil, err
+		}
+		deactivated = append(deactivated, userID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	affectedPRs := make([]string, 0)
+	if len(deactivated) > 0 {
+		const deleteReviewersQuery = `DELETE FROM reviewers r USING pull_requests pr
+			WHERE r.pull_request_id = pr.pull_request_id AND pr.status = 'OPEN' AND r.reviewer_id = ANY($1)
+			RETURNING r.pull_request_id`
+
+		deleteRows, err := tx.Query(ctx, deleteReviewersQuery, deactivated)
+		if err != nil {
+			return nil, nil, err
+		}
+		defer deleteRows.Close()
+
+		for deleteRows.Next() {
+			var prID string
+			if err := deleteRows.Scan(&prID); err != nil {
+				return nil, nil, err
+			}
+			affectedPRs = append(affectedPRs, prID)
+		}
+		if err := deleteRows.Err(); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, nil, err
+	}
+
+	return deactivated, affectedPRs, nil
 }
 
 func (s *PostgresStorage) GetTeam(ctx context.Context, teamName string) (*models.Team, error) {

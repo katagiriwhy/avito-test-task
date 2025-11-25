@@ -97,3 +97,34 @@ func (h *UserHandler) GetReview(c *gin.Context) {
 		"pull_requests": prs,
 	})
 }
+
+func (h *UserHandler) DeactivateTeam(c *gin.Context) {
+	teamName := c.Query("team_name")
+	if validation.IsEmptyString(teamName) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": gin.H{
+				"code":    "BAD_REQUEST",
+				"message": "team_name query parameter is required",
+			},
+		})
+		return
+	}
+
+	result, err := h.service.DeactivateTeamUsers(c.Request.Context(), teamName)
+	if err != nil {
+		var appErr *appError.AppError
+		if errors.As(err, &appErr) {
+			c.JSON(appErr.Status, gin.H{"error": gin.H{"code": appErr.Code, "message": appErr.Message}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": gin.H{
+				"code":    "INTERNAL_ERROR",
+				"message": "internal server error",
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"result": result})
+}

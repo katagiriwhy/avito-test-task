@@ -3,7 +3,9 @@ package application
 import (
 	"context"
 	"log"
+	"math/rand"
 	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -25,8 +27,10 @@ func NewApplication() *Application {
 
 	db := storage.NewPostgresStorage(pool)
 
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+
 	teamService := services.NewTeamService(db)
-	userService := services.NewUserService(db)
+	userService := services.NewUserService(db, rng)
 	prService := services.NewPullRequestService(db)
 
 	router := handlers.NewRoutes(teamService, userService, prService)
